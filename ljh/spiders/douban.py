@@ -18,13 +18,22 @@ class DoubanSpider(scrapy.Spider):
 
     # start_urls = ['https://movie.douban.com/top250']
     # start_urls = ['https://movie.douban.com/subject/30304469/?tag=%E7%83%AD%E9%97%A8&from=gaia']
+    count = 0
+    maxcount = 2500
 
     def start_requests(self):
         # yield scrapy.Request(url='https://movie.douban.com/subject/1292052/', callback=self.parse_film_page)
         # yield scrapy.Request(url='https://movie.douban.com/top250', callback=self.parse)
-        yield scrapy.Request(
-            url='https://movie.douban.com/j/search_subjects?type=movie&tag=%E8%B1%86%E7%93%A3%E9%AB%98%E5%88%86&sort=recommend&page_limit=2000&page_start=0',
-            callback=self.parse_json)
+        tags = [
+            '%e7%83%ad%e9%97%a8',  # 热门
+            '%e6%9c%80%e6%96%b0',  # 最新
+            '%e7%bb%8f%e5%85%b8',  # 经典
+            '%e8%b1%86%e7%93%a3%e9%ab%98%e5%88%86'  # 豆瓣高分
+        ]
+        for tag in tags:
+            yield scrapy.Request(
+                url='https://movie.douban.com/j/search_subjects?type=movie&tag=%s&sort=recommend&page_limit=2000&page_start=0' % tag,
+                callback=self.parse_json)
 
     def parse_json(self, response):
         res = json.loads(response.body_as_unicode())['subjects']
@@ -45,19 +54,40 @@ class DoubanSpider(scrapy.Spider):
     #         yield response.follow(next, callback=self.parse)
 
     def parse_film_page(self, response):
+        self.count = self.count + 1
         item = FilmItem()
-        item['film_id'] = response.request.url.split('/')[4]
+        item['film_id'] = response.request.url.split('subject/')[1].split('/')[0]
         item['title'] = response.css('#content > h1 > span:nth-child(1)::text').extract_first()
         item['year'] = response.css('#content > h1 > span.year::text').extract_first().replace('(', '').replace(')', '')
         item['directors'] = response.css('#info > span:nth-child(1) > span.attrs > a::text').getall()
         director_hrefs = response.css('#info > span:nth-child(1) > span.attrs > a::attr(href)').getall()
         item['writers'] = response.css('#info > span:nth-child(3) > span.attrs > a::text').getall()
         writer_hrefs = response.css('#info > span:nth-child(3) > span.attrs > a::attr(href)').getall()
-        item['actors'] = response.css('#info > span.actor > span.attrs > a::text').getall()[:7]
-        actor_hrefs = response.css('#info > span.actor > span.attrs > a::attr(href)').getall()[:7]
+        item['actors'] = response.css('#info > span.actor > span.attrs > a::text').getall()[:3]
+        actor_hrefs = response.css('#info > span.actor > span.attrs > a::attr(href)').getall()[:3]
         item['types'] = response.css('#info > span[property="v:genre"]::text').getall()
         item['region'] = \
             response.css('#info').re(r'<span class="pl">制片国家/地区:</span>.*<br>')[0].split('</span>')[1].split('<br>')[0]
+        item['description'] = response.css('#link-report > span::text').extract_first().strip()
+        try:
+            item['language'] = response \
+                .css('#info') \
+                .re(r'<span class="pl">语言:</span>.*<br>')[0] \
+                .split('</span>')[1] \
+                .split('<br>')[0] \
+                .strip()
+        except IndexError:
+            item['language'] = ''
+
+        try:
+            item['other_name'] = response \
+                .css('#info') \
+                .re(r'<span class="pl">又名:</span>.*<br>')[0] \
+                .split('</span>')[1] \
+                .split('<br>')[0] \
+                .strip()
+        except IndexError:
+            item['other_name'] = ''
         item['release_date'] = response.css('#info > span[property="v:initialReleaseDate"]::text').extract_first()
         item['size'] = response.css('#info > span[property="v:runtime"]::attr(content)').extract_first()
         item['star'] = response.css(
@@ -68,25 +98,34 @@ class DoubanSpider(scrapy.Spider):
             '#interest_sectl > div.rating_wrap.clearbox > div.rating_self.clearfix > div > div.rating_sum > a > span::text').extract_first()
         item['src'] = response.css(
             '#mainpic > a > img::attr(src)').extract_first()
+        recommendations = response.css('#recommendations > div > dl > dt > a::attr(href)').getall()
         # print(title, year, directors, writers, actors, types, region, release_date, size, star, star_percent, sep='\n')
-        yield item
-        for href in director_hrefs:
-            d_item = DirectorItem()
-            d_item['film_id'] = item['film_id']
-            d_item['celebrity_id'] = href.split('/')[2]
-            yield d_item
-        for href in writer_hrefs:
-            w_item = WriterItem()
-            w_item['film_id'] = item['film_id']
-            w_item['celebrity_id'] = href.split('/')[2]
-            yield w_item
-        for href in actor_hrefs:
-            a_item = ActorItem()
-            a_item['film_id'] = item['film_id']
-            a_item['celebrity_id'] = href.split('/')[2]
-            yield a_item
+        try:
+            for href in director_hrefs:
+                d_item = DirectorItem()
+                d_item['film_id'] = item['film_id']
+                d_item['celebrity_id'] = href.split('celebrity/')[1].split('/')[0]
+                yield d_item
+            for href in writer_hrefs:
+                w_item = WriterItem()
+                w_item['film_id'] = item['film_id']
+                w_item['celebrity_id'] = href.split('celebrity/')[1].split('/')[0]
+                yield w_item
+            for href in actor_hrefs:
+                a_item = ActorItem()
+                a_item['film_id'] = item['film_id']
+                a_item['celebrity_id'] = href.split('celebrity/')[1].split('/')[0]
+                yield a_item
+        except IndexError:
+            pass
+        else:
+            yield item
         for i in list(director_hrefs) + writer_hrefs + actor_hrefs:
             yield response.follow(i, callback=self.parse_celebrity_page)
+
+        if self.count < self.maxcount:
+            for i in recommendations:
+                yield response.follow(i, callback=self.parse_film_page)
 
     def parse_celebrity_page(self, response):
         name = response.css('#content > h1::text').extract_first()
@@ -101,7 +140,7 @@ class DoubanSpider(scrapy.Spider):
         # result = {k: v for k, v in zip(info_names, info_list)}
         # print(result)
         item = CelebrityItem()
-        item['celebrity_id'] = response.request.url.split('/')[4]
+        item['celebrity_id'] = response.request.url.split('celebrity/')[1].split('/')[0]
         item['human_src'] = response.css('#headline > div.pic > a > img::attr(src)').extract_first()
         for k in self.mapping:
             item[self.mapping[k]] = ''

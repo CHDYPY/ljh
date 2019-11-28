@@ -23,10 +23,13 @@ class LjhPipeline(object):
                 `star`,
                 `star_percent`,
                 `comment_num`,
-                `src`
+                `src`,
+                `description`,
+                `language`,
+                `other_name`
             ) 
             VALUES(
-                %s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s
+                %s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s
             )
         """
         self.add_celebrity_sql = """
@@ -88,7 +91,10 @@ class LjhPipeline(object):
                 str(item['star']),
                 str(item['star_percent']),
                 str(item['comment_num']),
-                str(item['src'])
+                str(item['src']),
+                str(item['description']),
+                str(item['language']),
+                str(item['other_name'])
             ])
         elif type(item) == CelebrityItem:
             cursor.execute(self.add_celebrity_sql, [

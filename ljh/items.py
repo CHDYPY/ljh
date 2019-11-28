@@ -39,6 +39,9 @@ class FilmItem(scrapy.Item):
     star_percent = scrapy.Field()
     comment_num = scrapy.Field()
     src = scrapy.Field()
+    description = scrapy.Field()
+    language = scrapy.Field()
+    other_name = scrapy.Field()
 
 
 class CelebrityItem(scrapy.Item):
